@@ -535,6 +535,20 @@ def install_opc_integration(
                 shutil.copy2(src, target_scripts_root / script_name)
                 result["installed_scripts"] += 1
 
+        # Copy bundled scripts referenced directly by settings.json (e.g., statusLine)
+        bundled_scripts = opc_source / "scripts"
+        for script_name in ["status.py", "status.sh"]:
+            src = bundled_scripts / script_name
+            if src.exists():
+                shutil.copy2(src, target_scripts_root / script_name)
+                result["installed_scripts"] += 1
+
+        # Persist the opc/ directory path for hooks (so uv runs in the correct project)
+        # This avoids dependency issues when running hooks from arbitrary projects.
+        opc_dir = (opc_source.parent / "opc").resolve()
+        if (opc_dir / "pyproject.toml").exists():
+            (target_dir / "opc_dir").write_text(str(opc_dir) + "\n")
+
         # Merge user items if requested
         if merge_user_items and existing and conflicts:
             # Merge non-conflicting hooks

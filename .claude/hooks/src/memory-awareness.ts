@@ -131,6 +131,7 @@ function checkMemoryRelevance(intent: string, projectDir: string): MemoryMatch |
     cwd: opcDir,
     env: {
       ...process.env,
+      CLAUDE_PROJECT_DIR: opcDir,
       PYTHONPATH: opcDir
     },
     timeout: 5000  // 5s timeout for fast check

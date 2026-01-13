@@ -63,6 +63,7 @@ export async function storeLearning(
     cwd: opcDir,
     env: {
       ...process.env,
+      CLAUDE_PROJECT_DIR: opcDir,
       PYTHONPATH: opcDir
     },
     timeout: 10000

@@ -1,21 +1,39 @@
 // src/memory-awareness.ts
-import { readFileSync } from "fs";
+import { readFileSync as readFileSync2 } from "fs";
 import { spawnSync } from "child_process";
 
 // src/shared/opc-path.ts
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { join, resolve } from "path";
+import { homedir } from "os";
 function getOpcDir() {
   const envOpcDir = process.env.CLAUDE_OPC_DIR;
   if (envOpcDir && existsSync(envOpcDir)) {
     return envOpcDir;
+  }
+  const homeDir = process.env.HOME || process.env.USERPROFILE || homedir();
+  if (homeDir) {
+    const globalClaude = join(homeDir, ".claude");
+    const opcDirFile = join(globalClaude, "opc_dir");
+    if (existsSync(opcDirFile)) {
+      try {
+        const raw = readFileSync(opcDirFile, "utf-8").trim();
+        const cleaned = raw.replace(/^['"]|['"]$/g, "");
+        if (cleaned) {
+          const candidate = resolve(cleaned);
+          if (existsSync(candidate) && existsSync(join(candidate, "pyproject.toml")) && existsSync(join(candidate, "scripts"))) {
+            return candidate;
+          }
+        }
+      } catch {
+      }
+    }
   }
   const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const localOpc = join(projectDir, "opc");
   if (existsSync(localOpc)) {
     return localOpc;
   }
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   if (homeDir) {
     const globalClaude = join(homeDir, ".claude");
     const globalScripts = join(globalClaude, "scripts", "core");
@@ -28,7 +46,7 @@ function getOpcDir() {
 
 // src/memory-awareness.ts
 function readStdin() {
-  return readFileSync(0, "utf-8");
+  return readFileSync2(0, "utf-8");
 }
 function extractIntent(prompt) {
   const metaPhrases = [
@@ -209,6 +227,7 @@ function checkMemoryRelevance(intent, projectDir) {
     cwd: opcDir,
     env: {
       ...process.env,
+      CLAUDE_PROJECT_DIR: opcDir,
       PYTHONPATH: opcDir
     },
     timeout: 5e3

@@ -7,8 +7,9 @@
  * 3. Gracefully degrading if neither exists
  */
 
-import { existsSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { homedir } from 'os';
 
 /**
  * Get the OPC directory path, or null if not available.
@@ -28,16 +29,41 @@ export function getOpcDir(): string | null {
     return envOpcDir;
   }
 
-  // 2. Try project-relative path
+  // 2. Try persisted opc/ location written by the installer (~/.claude/opc_dir)
+  const homeDir = process.env.HOME || process.env.USERPROFILE || homedir();
+  if (homeDir) {
+    const globalClaude = join(homeDir, '.claude');
+    const opcDirFile = join(globalClaude, 'opc_dir');
+
+    if (existsSync(opcDirFile)) {
+      try {
+        const raw = readFileSync(opcDirFile, 'utf-8').trim();
+        const cleaned = raw.replace(/^['"]|['"]$/g, '');
+        if (cleaned) {
+          const candidate = resolve(cleaned);
+          if (
+            existsSync(candidate) &&
+            existsSync(join(candidate, 'pyproject.toml')) &&
+            existsSync(join(candidate, 'scripts'))
+          ) {
+            return candidate;
+          }
+        }
+      } catch {
+        // Ignore unreadable/malformed opc_dir
+      }
+    }
+  }
+
+  // 3. Try project-relative path
   const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const localOpc = join(projectDir, 'opc');
   if (existsSync(localOpc)) {
     return localOpc;
   }
 
-  // 3. Try global ~/.claude (where wizard installs scripts)
+  // 4. Try global ~/.claude (where wizard installs scripts)
   // Scripts are at ~/.claude/scripts/core/, so we use ~/.claude as base
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
   if (homeDir) {
     const globalClaude = join(homeDir, '.claude');
     const globalScripts = join(globalClaude, 'scripts', 'core');
@@ -46,7 +72,7 @@ export function getOpcDir(): string | null {
     }
   }
 
-  // 4. Not available
+  // 5. Not available
   return null;
 }
 

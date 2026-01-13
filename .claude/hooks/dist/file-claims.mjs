@@ -1,23 +1,41 @@
 // src/file-claims.ts
-import { readFileSync } from "fs";
+import { readFileSync as readFileSync2 } from "fs";
 
 // src/shared/db-utils-pg.ts
 import { spawnSync } from "child_process";
 
 // src/shared/opc-path.ts
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, readFileSync } from "fs";
+import { join, resolve } from "path";
+import { homedir } from "os";
 function getOpcDir() {
   const envOpcDir = process.env.CLAUDE_OPC_DIR;
   if (envOpcDir && existsSync(envOpcDir)) {
     return envOpcDir;
+  }
+  const homeDir = process.env.HOME || process.env.USERPROFILE || homedir();
+  if (homeDir) {
+    const globalClaude = join(homeDir, ".claude");
+    const opcDirFile = join(globalClaude, "opc_dir");
+    if (existsSync(opcDirFile)) {
+      try {
+        const raw = readFileSync(opcDirFile, "utf-8").trim();
+        const cleaned = raw.replace(/^['"]|['"]$/g, "");
+        if (cleaned) {
+          const candidate = resolve(cleaned);
+          if (existsSync(candidate) && existsSync(join(candidate, "pyproject.toml")) && existsSync(join(candidate, "scripts"))) {
+            return candidate;
+          }
+        }
+      } catch {
+      }
+    }
   }
   const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const localOpc = join(projectDir, "opc");
   if (existsSync(localOpc)) {
     return localOpc;
   }
-  const homeDir = process.env.HOME || process.env.USERPROFILE || "";
   if (homeDir) {
     const globalClaude = join(homeDir, ".claude");
     const globalScripts = join(globalClaude, "scripts", "core");
@@ -170,7 +188,7 @@ function getProject() {
 function main() {
   let input;
   try {
-    const stdinContent = readFileSync(0, "utf-8");
+    const stdinContent = readFileSync2(0, "utf-8");
     input = JSON.parse(stdinContent);
   } catch {
     console.log(JSON.stringify({ result: "continue" }));
