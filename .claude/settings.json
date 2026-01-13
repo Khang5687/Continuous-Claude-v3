@@ -1,7 +1,7 @@
 {
   "statusLine": {
     "type": "command",
-    "command": "node $HOME/.claude/hooks/run-python.mjs $HOME/.claude/scripts/status.py"
+    "command": "uv run $HOME/.claude/scripts/status.py"
   },
   "hooks": {
     "PreToolUse": [
@@ -107,7 +107,7 @@
           },
           {
             "type": "command",
-            "command": "node $HOME/.claude/hooks/run-python.mjs $HOME/.claude/hooks/hook_launcher.py session-symbol-index",
+            "command": "uv run $HOME/.claude/hooks/hook_launcher.py session-symbol-index",
             "timeout": 5
           }
         ]
@@ -146,7 +146,7 @@
           },
           {
             "type": "command",
-            "command": "node $HOME/.claude/hooks/run-python.mjs $HOME/.claude/hooks/hook_launcher.py premortem-suggest",
+            "command": "uv run $HOME/.claude/hooks/hook_launcher.py premortem-suggest",
             "timeout": 5
           },
           {
@@ -206,7 +206,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node $HOME/.claude/hooks/run-python.mjs $HOME/.claude/hooks/hook_launcher.py post-tool-use-tracker",
+            "command": "uv run $HOME/.claude/hooks/hook_launcher.py post-tool-use-tracker",
             "timeout": 120
           }
         ]
@@ -246,7 +246,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node $HOME/.claude/hooks/run-python.mjs $HOME/.claude/hooks/hook_launcher.py auto-handoff-stop"
+            "command": "uv run $HOME/.claude/hooks/hook_launcher.py auto-handoff-stop"
           },
           {
             "type": "command",

@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
 """Session Start Continuity Hook (Python port).
 
 Loads YAML handoff context at session start. Injects full handoff (~400 tokens).
@@ -236,7 +240,7 @@ def ensure_memory_daemon() -> str | None:
 
         if daemon_script:
             subprocess.Popen(
-                ["uv", "run", "python", str(daemon_script), "start"],
+                ["uv", "run", str(daemon_script), "start"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=str(daemon_script.parent.parent.parent),  # opc/ dir
