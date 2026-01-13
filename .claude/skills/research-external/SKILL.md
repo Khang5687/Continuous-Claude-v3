@@ -164,19 +164,19 @@ Primary tool: **nia-docs** - Find API documentation, usage patterns, code exampl
 
 ```bash
 # Semantic search in package
-(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/nia_docs.py \
+(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/mcp/nia_docs.py \
   --package "$LIBRARY" \
   --registry "$REGISTRY" \
   --query "$TOPIC" \
   --limit 10)
 
 # If thorough depth, also grep for specific patterns
-(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/nia_docs.py \
+(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/mcp/nia_docs.py \
   --package "$LIBRARY" \
   --grep "$TOPIC")
 
 # Supplement with official docs if URL known
-(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/firecrawl_scrape.py \
+(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/mcp/firecrawl_scrape.py \
   --url "https://docs.example.com/api/$TOPIC" \
   --format markdown)
 ```
@@ -222,7 +222,7 @@ Use ALL available MCP tools - comprehensive multi-source research.
 
 **Step 2a: Library documentation (nia-docs)**
 ```bash
-(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/nia_docs.py \
+(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/mcp/nia_docs.py \
   --search "$TOPIC")
 ```
 
@@ -235,7 +235,7 @@ Use ALL available MCP tools - comprehensive multi-source research.
 **Step 2c: Specific documentation (firecrawl)**
 ```bash
 # Scrape relevant documentation pages found in perplexity results
-(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/firecrawl_scrape.py \
+(cd $CLAUDE_PROJECT_DIR/opc && uv run python -m runtime.harness scripts/mcp/firecrawl_scrape.py \
   --url "$FOUND_DOC_URL" \
   --format markdown)
 ```
