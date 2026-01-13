@@ -2,9 +2,10 @@
  * Cross-platform OPC directory resolution for hooks.
  *
  * Supports running Claude Code in any directory by:
- * 1. Checking CLAUDE_OPC_DIR environment variable (global setup)
- * 2. Falling back to ${CLAUDE_PROJECT_DIR}/opc (local setup)
- * 3. Gracefully degrading if neither exists
+ * 1. Checking CLAUDE_OPC_DIR environment variable (explicit override)
+ * 2. Reading ~/.claude/opc_dir (written by installer; supports global hooks)
+ * 3. Falling back to ${CLAUDE_PROJECT_DIR}/opc (local checkout)
+ * 4. Gracefully degrading if neither exists
  */
 
 import { existsSync, readFileSync } from 'fs';
@@ -15,10 +16,9 @@ import { homedir } from 'os';
  * Get the OPC directory path, or null if not available.
  *
  * Resolution order:
- * 1. CLAUDE_OPC_DIR env var (for global hook installation)
- * 2. ${CLAUDE_PROJECT_DIR}/opc (for running within CC project)
- * 3. ${CWD}/opc (fallback)
- * 4. ~/.claude (global installation - scripts at ~/.claude/scripts/)
+ * 1. CLAUDE_OPC_DIR env var (explicit override)
+ * 2. ~/.claude/opc_dir (installer-persisted path to opc/)
+ * 3. ${CLAUDE_PROJECT_DIR}/opc (for running within an OPC checkout)
  *
  * @returns Path to opc directory, or null if not found
  */
@@ -62,12 +62,13 @@ export function getOpcDir(): string | null {
     return localOpc;
   }
 
-  // 4. Try global ~/.claude (where wizard installs scripts)
-  // Scripts are at ~/.claude/scripts/core/, so we use ~/.claude as base
+  // 4. Try global ~/.claude only if it is itself a uv project (pyproject.toml present).
+  // Without a pyproject, running `uv run` from ~/.claude will not have dependencies.
   if (homeDir) {
     const globalClaude = join(homeDir, '.claude');
     const globalScripts = join(globalClaude, 'scripts', 'core');
-    if (existsSync(globalScripts)) {
+    const globalPyproject = join(globalClaude, 'pyproject.toml');
+    if (existsSync(globalPyproject) && existsSync(globalScripts)) {
       return globalClaude;
     }
   }

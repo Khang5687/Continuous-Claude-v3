@@ -222,7 +222,7 @@ def run_update() -> None:
         sys.exit(1)
 
     # Step 1: Git pull
-    console.print("[bold]Step 1/4: Pulling latest from GitHub...[/bold]")
+    console.print("[bold]Step 1/6: Pulling latest from GitHub...[/bold]")
     repo_root = opc_dir.parent  # Go up from opc/ to repo root
     success, msg = git_pull(repo_root)
     if success:
@@ -233,7 +233,7 @@ def run_update() -> None:
             sys.exit(1)
 
     # Step 2: Compare files
-    console.print("\n[bold]Step 2/4: Comparing installed files...[/bold]")
+    console.print("\n[bold]Step 2/6: Comparing installed files...[/bold]")
 
     # Source directories are in the repo's .claude/ integration folder
     integration_source = opc_dir.parent / ".claude"
@@ -276,7 +276,7 @@ def run_update() -> None:
             console.print(f"  {subdir}: [dim]not found in source[/dim]")
 
     # Step 3: Apply updates
-    console.print("\n[bold]Step 3/4: Applying updates...[/bold]")
+    console.print("\n[bold]Step 3/6: Applying updates...[/bold]")
 
     if not all_new and not all_updated:
         console.print("  [green]Everything is up to date![/green]")
@@ -311,8 +311,88 @@ def run_update() -> None:
 
         console.print(f"  [green]OK[/green] Applied {applied} file(s)")
 
-    # Step 4: Update pip packages (TLDR, etc.)
-    console.print("\n[bold]Step 4/5: Updating TLDR...[/bold]")
+    # Step 4: Refresh install metadata and bundled scripts
+    #
+    # Why: Some OPC runtime components (hooks) need to know where the canonical
+    # opc/ project lives so they can run `uv` from the right directory.
+    # The installer writes ~/.claude/opc_dir, but older installs won't have it
+    # unless we also refresh it during updates.
+    console.print("\n[bold]Step 4/6: Refreshing install metadata...[/bold]")
+
+    # Persist the opc/ directory path for hooks (so uv runs in the correct project)
+    try:
+        resolved_opc = opc_dir.resolve()
+        if (resolved_opc / "pyproject.toml").exists():
+            (claude_dir / "opc_dir").write_text(str(resolved_opc) + "\n")
+            console.print("  [green]OK[/green] Updated ~/.claude/opc_dir")
+        else:
+            console.print("  [yellow]WARN[/yellow] Could not locate pyproject.toml in opc/ - skipping opc_dir")
+    except Exception as e:
+        console.print(f"  [yellow]WARN[/yellow] Failed to write ~/.claude/opc_dir: {e}")
+
+    # Copy bundled scripts referenced directly by settings.json (e.g., statusLine)
+    installed_scripts = 0
+    bundled_src_dir = integration_source / "scripts"
+    target_scripts_dir = claude_dir / "scripts"
+    for script_name in ["status.py", "status.sh"]:
+        src = bundled_src_dir / script_name
+        if src.exists():
+            if copy_file(src, target_scripts_dir / script_name):
+                installed_scripts += 1
+    if installed_scripts:
+        console.print(f"  [green]OK[/green] Installed/updated {installed_scripts} bundled script(s)")
+    else:
+        console.print("  [dim]No bundled scripts to install[/dim]")
+
+    # Ensure mcp_config.json exists (used by runtime/mcp_client.py)
+    # Do not overwrite an existing user config; if present, apply a small targeted fix for qlty.
+    src_mcp_config = integration_source / "mcp_config.json"
+    dst_mcp_config = claude_dir / "mcp_config.json"
+    if not dst_mcp_config.exists():
+        if src_mcp_config.exists():
+            if copy_file(src_mcp_config, dst_mcp_config):
+                console.print("  [green]OK[/green] Installed ~/.claude/mcp_config.json")
+            else:
+                console.print("  [yellow]WARN[/yellow] Failed to install ~/.claude/mcp_config.json")
+        else:
+            console.print("  [dim]No default mcp_config.json found in repo[/dim]")
+    else:
+        # Targeted migration: old qlty config used $HOME (not expanded) and a missing venv path.
+        try:
+            import json
+
+            cfg = json.loads(dst_mcp_config.read_text(encoding="utf-8"))
+            servers = cfg.get("mcpServers") if isinstance(cfg, dict) else None
+            qlty = servers.get("qlty") if isinstance(servers, dict) else None
+
+            if isinstance(qlty, dict):
+                cmd = str(qlty.get("command", ""))
+                args = qlty.get("args", [])
+                needs_fix = (
+                    "$HOME/.claude/venv" in cmd
+                    or (isinstance(args, list) and any(isinstance(a, str) and "$HOME/.claude/venv" in a for a in args))
+                    or (isinstance(args, list) and any(isinstance(a, str) and "$HOME/.claude/servers/qlty/server.py" in a for a in args))
+                )
+
+                if needs_fix:
+                    qlty["command"] = "python3"
+                    qlty["args"] = ["${HOME}/.claude/servers/qlty/run_with_uv.py"]
+                    dst_mcp_config.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+                    console.print("  [green]OK[/green] Updated qlty MCP server config in ~/.claude/mcp_config.json")
+        except Exception as e:
+            console.print(f"  [yellow]WARN[/yellow] Could not update ~/.claude/mcp_config.json: {e}")
+
+    # Ensure the qlty uv-runner is present (used by mcp_config.json)
+    qlty_runner_src = integration_source / "servers" / "qlty" / "run_with_uv.py"
+    qlty_runner_dst = claude_dir / "servers" / "qlty" / "run_with_uv.py"
+    if qlty_runner_src.exists():
+        if copy_file(qlty_runner_src, qlty_runner_dst):
+            console.print("  [green]OK[/green] Installed/updated qlty runner (run_with_uv.py)")
+        else:
+            console.print("  [yellow]WARN[/yellow] Failed to install qlty runner (run_with_uv.py)")
+
+    # Step 5: Update pip packages (TLDR, etc.)
+    console.print("\n[bold]Step 5/6: Updating TLDR...[/bold]")
 
     # Check for local dev install first (monorepo setup)
     tldr_local_venv = opc_dir / "packages" / "tldr-code" / ".venv"
@@ -358,8 +438,8 @@ def run_update() -> None:
     else:
         console.print("  [dim]TLDR not installed, skipping[/dim]")
 
-    # Step 5: Rebuild hooks if needed
-    console.print("\n[bold]Step 5/5: Rebuilding TypeScript hooks...[/bold]")
+    # Step 6: Rebuild hooks if needed
+    console.print("\n[bold]Step 6/6: Rebuilding TypeScript hooks...[/bold]")
 
     if ts_updated or all_new:
         hooks_dir = claude_dir / "hooks"

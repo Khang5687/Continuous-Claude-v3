@@ -484,6 +484,13 @@ def install_opc_integration(
         if opc_settings_path.exists():
             shutil.copy2(opc_settings_path, target_settings_path)
 
+        # Copy mcp_config.json (MCP server configuration for the Python runtime tooling)
+        # Do not overwrite an existing user config.
+        opc_mcp_config = opc_source / "mcp_config.json"
+        target_mcp_config = target_dir / "mcp_config.json"
+        if opc_mcp_config.exists() and not target_mcp_config.exists():
+            shutil.copy2(opc_mcp_config, target_mcp_config)
+
         # Copy scripts/core/ for memory/artifact support
         # This enables recall_learnings, store_learning, and artifact_* scripts
         opc_scripts_core = opc_source.parent / "opc" / "scripts" / "core"

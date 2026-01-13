@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import McpConfig
+from .env_utils import expand_env_vars_in_config
 from .schema_utils import (
     generate_pydantic_model,
     sanitize_name,
@@ -230,8 +231,17 @@ async def generate_wrappers(config_path: Path | None = None) -> None:
     logger.info("Starting wrapper generation...")
 
     import aiofiles
+    import json
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+
+    async def _load_config_file(path: Path) -> McpConfig:
+        """Load and validate a config file with ${VAR} env expansion."""
+        async with aiofiles.open(path) as f:
+            content = await f.read()
+        raw = json.loads(content)
+        expanded = expand_env_vars_in_config(raw)
+        return McpConfig.model_validate(expanded)
 
     # Load config with merging support
     if config_path:
@@ -239,30 +249,38 @@ async def generate_wrappers(config_path: Path | None = None) -> None:
             logger.error(f"Config file not found: {config_path}")
             return
         logger.info(f"Using explicit config: {config_path}")
-        async with aiofiles.open(config_path) as f:
-            content = await f.read()
-        config = McpConfig.model_validate_json(content)
+        try:
+            config = await _load_config_file(config_path)
+        except Exception as e:
+            logger.error(f"Failed to load config from {config_path}: {e}")
+            return
     else:
         # Config merging: global + project (project overrides)
         project_root = find_project_root(Path.cwd())
         mcp_json = project_root / ".mcp.json"
         mcp_config_json = project_root / "mcp_config.json"
+        mcp_config_dash_json = project_root / "mcp-config.json"
         global_config = Path.home() / ".claude" / "mcp_config.json"
+        global_config_dash = Path.home() / ".claude" / "mcp-config.json"
 
         global_cfg: McpConfig | None = None
         project_cfg: McpConfig | None = None
 
         # Load global config if exists
+        global_config_file = None
         if global_config.exists():
+            global_config_file = global_config
+        elif global_config_dash.exists():
+            global_config_file = global_config_dash
+
+        if global_config_file and global_config_file.exists():
             try:
-                async with aiofiles.open(global_config) as f:
-                    content = await f.read()
-                global_cfg = McpConfig.model_validate_json(content)
+                global_cfg = await _load_config_file(global_config_file)
                 logger.info(
-                    f"Loaded global config: {global_config} ({len(global_cfg.mcpServers)} servers)"
+                    f"Loaded global config: {global_config_file} ({len(global_cfg.mcpServers)} servers)"
                 )
             except Exception as e:
-                logger.warning(f"Failed to load global config {global_config}: {e}")
+                logger.warning(f"Failed to load global config {global_config_file}: {e}")
 
         # Load project config if exists
         project_config_file = None
@@ -270,12 +288,12 @@ async def generate_wrappers(config_path: Path | None = None) -> None:
             project_config_file = mcp_json
         elif mcp_config_json.exists():
             project_config_file = mcp_config_json
+        elif mcp_config_dash_json.exists():
+            project_config_file = mcp_config_dash_json
 
         if project_config_file:
             try:
-                async with aiofiles.open(project_config_file) as f:
-                    content = await f.read()
-                project_cfg = McpConfig.model_validate_json(content)
+                project_cfg = await _load_config_file(project_config_file)
                 logger.info(
                     f"Loaded project config: {project_config_file} ({len(project_cfg.mcpServers)} servers)"
                 )
@@ -293,7 +311,8 @@ async def generate_wrappers(config_path: Path | None = None) -> None:
             config = global_cfg
         else:
             logger.error(
-                "No config file found. Expected .mcp.json or mcp_config.json, or global ~/.claude/mcp_config.json"
+                "No config file found. Expected .mcp.json, mcp_config.json, mcp-config.json, "
+                "or global ~/.claude/mcp_config.json / ~/.claude/mcp-config.json"
             )
             return
 

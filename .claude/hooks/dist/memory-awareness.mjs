@@ -37,7 +37,8 @@ function getOpcDir() {
   if (homeDir) {
     const globalClaude = join(homeDir, ".claude");
     const globalScripts = join(globalClaude, "scripts", "core");
-    if (existsSync(globalScripts)) {
+    const globalPyproject = join(globalClaude, "pyproject.toml");
+    if (existsSync(globalPyproject) && existsSync(globalScripts)) {
       return globalClaude;
     }
   }

@@ -69,8 +69,8 @@
     },
     "qlty": {
       "type": "stdio",
-      "command": "$HOME/.claude/venv/bin/python",
-      "args": ["$HOME/.claude/servers/qlty/server.py"],
+      "command": "python3",
+      "args": ["${HOME}/.claude/servers/qlty/run_with_uv.py"],
       "disabled": false
     }
   }
