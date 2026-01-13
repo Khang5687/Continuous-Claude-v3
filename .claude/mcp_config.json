@@ -47,8 +47,8 @@
     },
     "nia": {
       "type": "stdio",
-      "command": "pipx",
-      "args": ["run", "--no-cache", "nia-mcp-server"],
+      "command": "uvx",
+      "args": ["--refresh", "nia-mcp-server"],
       "env": {
         "NIA_API_KEY": "${NIA_API_KEY}",
         "NIA_API_URL": "https://apigcp.trynia.ai/"
