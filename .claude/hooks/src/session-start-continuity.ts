@@ -369,7 +369,7 @@ async function main() {
                 const summaryPreview = h.task_summary ? h.task_summary.substring(0, 60) + '...' : '(no summary)';
                 additionalContext += `- **${h.session_name}/${taskLabel}** (ID: \`${h.id.substring(0, 8)}\`): ${summaryPreview}\n`;
               }
-              additionalContext += `\nTo mark an outcome:\n\`\`\`bash\nuv run python scripts/core/artifact_mark.py --handoff <ID> --outcome SUCCEEDED|PARTIAL_PLUS|PARTIAL_MINUS|FAILED\n\`\`\`\n`;
+              additionalContext += `\nTo mark an outcome:\n\`\`\`bash\ncd ~/.claude && uv run python scripts/core/artifact_mark.py --handoff <ID> --outcome SUCCEEDED|PARTIAL_PLUS|PARTIAL_MINUS|FAILED\n\`\`\`\n`;
             }
 
             // Add full handoff path for reference
@@ -462,7 +462,7 @@ async function main() {
               const summaryPreview = h.task_summary ? h.task_summary.substring(0, 60) + '...' : '(no summary)';
               additionalContext += `- **${h.session_name}/${taskLabel}** (ID: \`${h.id.substring(0, 8)}\`): ${summaryPreview}\n`;
             }
-            additionalContext += `\nTo mark an outcome:\n\`\`\`bash\nuv run python scripts/core/artifact_mark.py --handoff <ID> --outcome SUCCEEDED|PARTIAL_PLUS|PARTIAL_MINUS|FAILED\n\`\`\`\n`;
+            additionalContext += `\nTo mark an outcome:\n\`\`\`bash\ncd ~/.claude && uv run python scripts/core/artifact_mark.py --handoff <ID> --outcome SUCCEEDED|PARTIAL_PLUS|PARTIAL_MINUS|FAILED\n\`\`\`\n`;
           }
 
           // Add handoff context if available

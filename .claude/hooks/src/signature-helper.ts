@@ -6,7 +6,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { queryDaemonSync } from './daemon-client.js';
+import { queryDaemonSync, trackHookActivitySync } from './daemon-client.js';
 
 interface HookInput {
   tool_name: string;
@@ -90,11 +90,11 @@ function findFunctionFile(funcName: string, projectDir: string): string | null {
 /**
  * Get function signature from TLDR daemon extract.
  */
-function getSignatureFromTLDR(funcName: string, filePath: string): string | null {
+function getSignatureFromTLDR(funcName: string, filePath: string, sessionId?: string): string | null {
   try {
     const projectDir = getProjectDir();
     const response = queryDaemonSync(
-      { cmd: 'extract', file: filePath },
+      { cmd: 'extract', file: filePath, session: sessionId },
       projectDir
     );
 
@@ -149,7 +149,7 @@ async function main() {
   for (const call of calls.slice(0, 5)) {
     const filePath = findFunctionFile(call, projectDir);
     if (filePath) {
-      const sig = getSignatureFromTLDR(call, filePath);
+      const sig = getSignatureFromTLDR(call, filePath, input.session_id);
       if (sig) {
         signatures.push(sig);
       }
@@ -167,6 +167,12 @@ async function main() {
       additionalContext: `[Signatures from TLDR]\n${signatures.join('\n')}`
     }
   };
+
+  // Track hook activity for flush threshold
+  trackHookActivitySync('signature-helper', projectDir, true, {
+    edits_checked: 1,
+    signatures_found: signatures.length,
+  });
 
   console.log(JSON.stringify(output));
 }

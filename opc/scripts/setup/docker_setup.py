@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Docker Stack Setup for OPC v3.
+"""Container Stack Setup for OPC v3.
 
-Manages the Docker Compose stack lifecycle including:
+Manages the Docker/Podman Compose stack lifecycle including:
 - Starting services (PostgreSQL, Redis, Sandbox)
 - Waiting for health checks
 - Running database migrations
 - Verifying stack health
+
+Supports both Docker and Podman as container runtimes.
 
 USAGE:
     python -m scripts.setup.docker_setup
@@ -35,12 +37,30 @@ DOCKER_DIR = PROJECT_ROOT.parent / "docker"
 DOCKER_COMPOSE_FILE = DOCKER_DIR / "docker-compose.yml"
 MIGRATIONS_DIR = PROJECT_ROOT / "scripts" / "migrations"
 
+# Container runtime - "docker" or "podman" (set by wizard after detection)
+_CONTAINER_RUNTIME = "docker"
 
-async def start_docker_stack(compose_file: Path | None = None) -> dict[str, Any]:
+
+def set_container_runtime(runtime: str) -> None:
+    """Set the container runtime to use (docker or podman)."""
+    global _CONTAINER_RUNTIME
+    _CONTAINER_RUNTIME = runtime
+
+
+def get_container_runtime() -> str:
+    """Get the current container runtime."""
+    return _CONTAINER_RUNTIME
+
+
+async def start_docker_stack(
+    compose_file: Path | None = None,
+    env_file: Path | None = None,
+) -> dict[str, Any]:
     """Start the Docker Compose stack.
 
     Args:
         compose_file: Path to docker-compose.yml (defaults to project root)
+        env_file: Path to .env file for variable substitution
 
     Returns:
         dict with keys: success, error (if failed), output
@@ -50,14 +70,15 @@ async def start_docker_stack(compose_file: Path | None = None) -> dict[str, Any]
     if not compose_path.exists():
         return {"success": False, "error": f"Docker compose file not found: {compose_path}"}
 
+    # Build command with optional --env-file
+    cmd = [_CONTAINER_RUNTIME, "compose", "-f", str(compose_path)]
+    if env_file and env_file.exists():
+        cmd.extend(["--env-file", str(env_file)])
+    cmd.extend(["up", "-d"])
+
     try:
         process = await asyncio.create_subprocess_exec(
-            "docker",
-            "compose",
-            "-f",
-            str(compose_path),
-            "up",
-            "-d",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -71,17 +92,23 @@ async def start_docker_stack(compose_file: Path | None = None) -> dict[str, Any]
         return {"success": False, "error": str(e)}
 
 
-async def wait_for_services(timeout: int = 60, services: list[str] | None = None) -> dict[str, Any]:
+async def wait_for_services(
+    timeout: int = 60,
+    services: list[str] | None = None,
+    compose_file: Path | None = None,
+) -> dict[str, Any]:
     """Wait for Docker services to become healthy.
 
     Args:
         timeout: Maximum seconds to wait
         services: List of service names to check (defaults to postgres, redis)
+        compose_file: Path to docker-compose.yml
 
     Returns:
         dict with service health status and all_healthy flag
     """
     services = services or ["postgres"]
+    compose_path = compose_file or DOCKER_COMPOSE_FILE
     result = {s: False for s in services}
     result["all_healthy"] = False
 
@@ -93,8 +120,10 @@ async def wait_for_services(timeout: int = 60, services: list[str] | None = None
         for service in services:
             try:
                 process = await asyncio.create_subprocess_exec(
-                    "docker",
+                    _CONTAINER_RUNTIME,
                     "compose",
+                    "-f",
+                    str(compose_path),
                     "ps",
                     service,
                     "--format",
@@ -121,25 +150,32 @@ async def wait_for_services(timeout: int = 60, services: list[str] | None = None
     return result
 
 
-async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
+async def run_migrations(
+    migrations_dir: Path | None = None,
+    compose_file: Path | None = None,
+) -> dict[str, Any]:
     """Run database migrations.
 
     Args:
         migrations_dir: Directory containing migration SQL files
+        compose_file: Path to docker-compose.yml
 
     Returns:
         dict with keys: success, error (if failed), migrations_run
     """
     migrations_path = migrations_dir or MIGRATIONS_DIR
+    compose_path = compose_file or DOCKER_COMPOSE_FILE
 
-    # First, try to run init-db.sql if it exists
-    init_sql = PROJECT_ROOT / "init-db.sql"
+    # First, try to run init-schema.sql if it exists
+    init_sql = PROJECT_ROOT / "init-schema.sql"
 
     try:
         if init_sql.exists():
             process = await asyncio.create_subprocess_exec(
-                "docker",
+                _CONTAINER_RUNTIME,
                 "compose",
+                "-f",
+                str(compose_path),
                 "exec",
                 "-T",
                 "postgres",
@@ -147,9 +183,9 @@ async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
                 "-U",
                 "claude",
                 "-d",
-                "claude_continuity",
+                "continuous_claude",
                 "-f",
-                "/docker-entrypoint-initdb.d/init-db.sql",
+                "/docker-entrypoint-initdb.d/init-schema.sql",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -158,8 +194,10 @@ async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
             if process.returncode != 0:
                 # Try alternative approach - pipe the SQL directly
                 process = await asyncio.create_subprocess_exec(
-                    "docker",
+                    _CONTAINER_RUNTIME,
                     "compose",
+                    "-f",
+                    str(compose_path),
                     "exec",
                     "-T",
                     "postgres",
@@ -167,7 +205,7 @@ async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
                     "-U",
                     "claude",
                     "-d",
-                    "claude_continuity",
+                    "continuous_claude",
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -182,8 +220,10 @@ async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
         if migrations_path.exists():
             for sql_file in sorted(migrations_path.glob("*.sql")):
                 process = await asyncio.create_subprocess_exec(
-                    "docker",
+                    _CONTAINER_RUNTIME,
                     "compose",
+                    "-f",
+                    str(compose_path),
                     "exec",
                     "-T",
                     "postgres",
@@ -191,7 +231,7 @@ async def run_migrations(migrations_dir: Path | None = None) -> dict[str, Any]:
                     "-U",
                     "claude",
                     "-d",
-                    "claude_continuity",
+                    "continuous_claude",
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -225,7 +265,7 @@ async def verify_stack_health(compose_file: Path | None = None) -> dict[str, Any
 
     try:
         process = await asyncio.create_subprocess_exec(
-            "docker",
+            _CONTAINER_RUNTIME,
             "compose",
             "-f",
             str(compose_path),
@@ -292,7 +332,7 @@ async def stop_docker_stack(compose_file: Path | None = None) -> dict[str, Any]:
 
     try:
         process = await asyncio.create_subprocess_exec(
-            "docker",
+            _CONTAINER_RUNTIME,
             "compose",
             "-f",
             str(compose_path),

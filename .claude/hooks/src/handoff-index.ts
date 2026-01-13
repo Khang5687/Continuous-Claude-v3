@@ -133,7 +133,7 @@ function extractSessionName(filePath: string): string | null {
 async function main() {
   const input: PostToolUseInput = JSON.parse(await readStdin());
   const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const homeDir = process.env.HOME || '';
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
   // Only process Write tool calls
   if (input.tool_name !== 'Write') {

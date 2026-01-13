@@ -462,6 +462,14 @@ def install_opc_integration(
             shutil.copytree(opc_servers, target_servers)
             result["installed_servers"] = len(list(target_servers.glob("*")))
 
+        # Copy plugins (e.g., braintrust-tracing)
+        opc_plugins = opc_source / "plugins"
+        target_plugins = target_dir / "plugins"
+        if opc_plugins.exists():
+            if target_plugins.exists():
+                shutil.rmtree(target_plugins)
+            shutil.copytree(opc_plugins, target_plugins)
+
         # Copy runtime (MCP harness for servers)
         opc_runtime = opc_source / "runtime"
         target_runtime = target_dir / "runtime"

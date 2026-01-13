@@ -165,7 +165,7 @@ Store and recall learnings across sessions.
 
 ```bash
 # Recall past learnings
-(cd opc && uv run python scripts/recall_learnings.py --query "hook patterns")
+(cd opc && uv run python scripts/core/recall_learnings.py --query "hook patterns")
 
 # Store new learning (via /remember skill)
 /remember "Hook X works by..."
@@ -252,7 +252,7 @@ Agents declare their capabilities:
 ---
 name: my-agent
 description: Specialist for X
-model: sonnet|haiku|opus
+model: sonnet|haiku|claude-opus-4-5-20251101
 tools: [Read, Grep, Glob, Bash]
 ---
 ```

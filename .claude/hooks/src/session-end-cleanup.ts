@@ -3,7 +3,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 
 // Lock file to prevent multiple concurrent braintrust extractors
-const EXTRACTOR_LOCK = path.join(process.env.HOME || '', '.claude', 'braintrust-extractor.lock');
+const EXTRACTOR_LOCK = path.join(process.env.HOME || process.env.USERPROFILE || '', '.claude', 'braintrust-extractor.lock');
 const LOCK_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes - consider stale after this
 
 interface SessionEndInput {
@@ -130,7 +130,7 @@ async function main() {
     }
 
     const learnScript = path.join(projectDir, 'scripts', 'braintrust_analyze.py');
-    const globalScript = path.join(process.env.HOME || '', '.claude', 'scripts', 'braintrust_analyze.py');
+    const globalScript = path.join(process.env.HOME || process.env.USERPROFILE || '', '.claude', 'scripts', 'braintrust_analyze.py');
     const scriptPath = fs.existsSync(learnScript) ? learnScript : globalScript;
 
     if (fs.existsSync(scriptPath)) {
