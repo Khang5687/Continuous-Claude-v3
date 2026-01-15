@@ -108,8 +108,8 @@ async def store_learning_v2(
     if not content or not content.strip():
         return {"success": False, "error": "No content provided"}
 
-    # Get backend - prefer postgres if DATABASE_URL is set
-    if os.environ.get("DATABASE_URL"):
+    # Get backend - prefer postgres if connection string is set
+    if os.environ.get("CONTINUOUS_CLAUDE_DB_URL") or os.environ.get("DATABASE_URL"):
         backend = "postgres"
     else:
         backend = get_default_backend()
@@ -121,7 +121,7 @@ async def store_learning_v2(
         )
 
         # Generate embedding
-        embedder = EmbeddingService(provider="local")
+        embedder = EmbeddingService(provider=os.getenv("EMBEDDING_PROVIDER", "local"))
         embedding = await embedder.embed(content)
 
         # Deduplication check: search for similar existing memories
@@ -236,8 +236,8 @@ async def store_learning(
         }
     }
 
-    # Get backend - prefer postgres if DATABASE_URL is set
-    if os.environ.get("DATABASE_URL"):
+    # Get backend - prefer postgres if connection string is set
+    if os.environ.get("CONTINUOUS_CLAUDE_DB_URL") or os.environ.get("DATABASE_URL"):
         backend = "postgres"
     else:
         backend = get_default_backend()
@@ -249,7 +249,7 @@ async def store_learning(
         )
 
         # Generate embedding using local provider (no API key needed)
-        embedder = EmbeddingService(provider="local")
+        embedder = EmbeddingService(provider=os.getenv("EMBEDDING_PROVIDER", "local"))
         embedding = await embedder.embed(learning_content)
 
         # Store with embedding for semantic search

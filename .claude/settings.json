@@ -127,11 +127,6 @@
           {
             "type": "command",
             "command": "node $HOME/.claude/hooks/dist/session-start-tldr-cache.mjs",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "(node $HOME/.claude/hooks/dist/session-start-dead-code.mjs &>/dev/null &)",
             "timeout": 2
           }
         ]

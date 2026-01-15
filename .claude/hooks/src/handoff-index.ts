@@ -143,8 +143,9 @@ async function main() {
 
   const filePath = input.tool_input?.file_path || '';
 
-  // Only process handoff files
-  if (!filePath.includes('handoffs') || !filePath.endsWith('.md')) {
+  // Only process handoff files (.md or .yaml/.yml)
+  const isHandoffFile = filePath.endsWith('.md') || filePath.endsWith('.yaml') || filePath.endsWith('.yml');
+  if (!filePath.includes('handoffs') || !isHandoffFile) {
     console.log(JSON.stringify({ result: 'continue' }));
     return;
   }
@@ -162,6 +163,7 @@ async function main() {
     let modified = false;
 
     // Check if frontmatter already has root_span_id
+    const isYamlFile = fullPath.endsWith('.yaml') || fullPath.endsWith('.yml');
     const hasFrontmatter = content.startsWith('---');
     const hasRootSpanId = content.includes('root_span_id:');
 
@@ -181,7 +183,10 @@ async function main() {
             `session_id: ${input.session_id}`
           ].join('\n');
 
-          if (hasFrontmatter) {
+          if (isYamlFile) {
+            // For YAML files, prepend fields at the top (no frontmatter delimiters needed)
+            content = `${newFields}\n${content}`;
+          } else if (hasFrontmatter) {
             // Insert after opening ---
             content = content.replace(/^---\n/, `---\n${newFields}\n`);
           } else {

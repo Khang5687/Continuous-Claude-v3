@@ -189,6 +189,49 @@ uv run python -m scripts.setup.wizard
 | 10 | TLDR code analysis tool |
 | 11-12 | Diagnostics tools + Loogle (optional) |
 
+### Remote Database Setup
+
+By default, CC-v3 runs PostgreSQL locally via Docker. For remote database setups:
+
+#### 1. Database Preparation
+
+```bash
+# Connect to your remote PostgreSQL instance
+psql -h hostname -U user -d continuous_claude
+
+# Enable pgvector extension (requires superuser or rds_superuser)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+# Apply the schema (from your local clone)
+psql -h hostname -U user -d continuous_claude -f docker/init-schema.sql
+```
+
+> **Managed PostgreSQL tips:**
+> - **AWS RDS**: Add `vector` to `shared_preload_libraries` in DB Parameter Group
+> - **Supabase**: Enable via Database Extensions page
+> - **Azure Database**: Use Extensions pane to enable pgvector
+
+#### 2. Connection Configuration
+
+Set `CONTINUOUS_CLAUDE_DB_URL` in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CONTINUOUS_CLAUDE_DB_URL": "postgresql://user:password@hostname:5432/continuous_claude"
+  }
+}
+```
+
+Or export before running Claude:
+
+```bash
+export CONTINUOUS_CLAUDE_DB_URL="postgresql://user:password@hostname:5432/continuous_claude"
+claude
+```
+
+See `.env.example` for all available environment variables.
+
 ### First Session
 
 ```bash
@@ -976,6 +1019,101 @@ This will:
 | Scripts | ~/.claude/scripts/ |
 | PostgreSQL | Docker container |
 
+### Installation Mode: Copy vs Symlink
+
+The wizard offers two installation modes:
+
+| Mode | How It Works | Best For |
+|------|--------------|----------|
+| **Copy** (default) | Copies files from repo to `~/.claude/` | End users, stable setup |
+| **Symlink** | Creates symlinks to repo files | Contributors, development |
+
+#### Copy Mode (Default)
+
+Files are copied from `continuous-claude/.claude/` to `~/.claude/`. Changes you make in `~/.claude/` are **local only** and will be overwritten on next update.
+
+```text
+continuous-claude/.claude/  ──COPY──>  ~/.claude/
+     (source)                          (user config)
+```
+
+**Pros:** Stable, isolated from repo changes
+**Cons:** Local changes lost on update, manual sync needed
+
+#### Symlink Mode (Recommended for Contributors)
+
+Creates symlinks so `~/.claude/` points directly to repo files. Changes in either location affect the same files.
+
+```text
+~/.claude/rules  ──SYMLINK──>  continuous-claude/.claude/rules
+~/.claude/skills ──SYMLINK──>  continuous-claude/.claude/skills
+~/.claude/hooks  ──SYMLINK──>  continuous-claude/.claude/hooks
+~/.claude/agents ──SYMLINK──>  continuous-claude/.claude/agents
+```
+
+**Pros:**
+- Changes auto-sync to repo (can `git commit` improvements)
+- No re-installation needed after `git pull`
+- Contribute back easily
+
+**Cons:**
+- Breaking changes in repo affect your setup immediately
+- Need to manage git workflow
+
+#### Switching to Symlink Mode
+
+If you installed with copy mode and want to switch:
+
+```bash
+# Backup current config
+mkdir -p ~/.claude/backups/$(date +%Y%m%d)
+cp -r ~/.claude/{rules,skills,hooks,agents} ~/.claude/backups/$(date +%Y%m%d)/
+
+# Verify backup succeeded before proceeding
+ls -la ~/.claude/backups/$(date +%Y%m%d)/
+
+# Remove copies (only after verifying backup above)
+rm -rf ~/.claude/{rules,skills,hooks,agents}
+
+# Create symlinks (adjust path to your repo location)
+REPO="$HOME/continuous-claude"  # or wherever you cloned
+ln -s "$REPO/.claude/rules" ~/.claude/rules
+ln -s "$REPO/.claude/skills" ~/.claude/skills
+ln -s "$REPO/.claude/hooks" ~/.claude/hooks
+ln -s "$REPO/.claude/agents" ~/.claude/agents
+
+# Verify
+ls -la ~/.claude | grep -E "rules|skills|hooks|agents"
+```
+
+**Windows users:** Use PowerShell (as Administrator or with Developer Mode enabled):
+
+```powershell
+# Enable Developer Mode first (Settings → Privacy & security → For developers)
+# Or run PowerShell as Administrator
+
+# Backup current config
+$BackupDir = "$HOME\.claude\backups\$(Get-Date -Format 'yyyyMMdd')"
+New-Item -ItemType Directory -Path $BackupDir -Force
+Copy-Item -Recurse "$HOME\.claude\rules","$HOME\.claude\skills","$HOME\.claude\hooks","$HOME\.claude\agents" $BackupDir
+
+# Verify backup succeeded before proceeding
+Get-ChildItem $BackupDir
+
+# Remove copies (only after verifying backup above)
+Remove-Item -Recurse "$HOME\.claude\rules","$HOME\.claude\skills","$HOME\.claude\hooks","$HOME\.claude\agents"
+
+# Create symlinks (adjust path to your repo location)
+$REPO = "$HOME\continuous-claude"  # or wherever you cloned
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\rules" -Target "$REPO\.claude\rules"
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\skills" -Target "$REPO\.claude\skills"
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\hooks" -Target "$REPO\.claude\hooks"
+New-Item -ItemType SymbolicLink -Path "$HOME\.claude\agents" -Target "$REPO\.claude\agents"
+
+# Verify
+Get-ChildItem "$HOME\.claude" | Where-Object { $_.LinkType -eq "SymbolicLink" }
+```
+
 ### For Brownfield Projects
 
 After installation, start Claude and run:
@@ -1028,6 +1166,8 @@ Skill activation triggers.
 | `BRAINTRUST_API_KEY` | Session tracing | No |
 | `PERPLEXITY_API_KEY` | Web search | No |
 | `NIA_API_KEY` | Documentation search | No |
+| `CLAUDE_OPC_DIR` | Path to CC's opc/ directory (set by wizard) | Auto |
+| `CLAUDE_PROJECT_DIR` | Current project directory (set by SessionStart hook) | Auto |
 
 Services without API keys still work:
 - Continuity system (ledgers, handoffs)

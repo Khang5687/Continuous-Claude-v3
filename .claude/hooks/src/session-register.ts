@@ -11,25 +11,13 @@
 
 import { readFileSync } from 'fs';
 import { registerSession, getActiveSessions } from './shared/db-utils-pg.js';
+import { generateSessionId, writeSessionId, getProject } from './shared/session-id.js';
 import type { SessionStartInput, HookOutput } from './shared/types.js';
 
-// Generate a short session ID from environment or random
-function getSessionId(): string {
-  // Use Braintrust span ID if available, otherwise generate
-  const spanId = process.env.BRAINTRUST_SPAN_ID;
-  if (spanId) {
-    return spanId.slice(0, 8);
-  }
-
-  // Fallback to timestamp-based ID
-  return `s-${Date.now().toString(36)}`;
-}
-
-// Get project from environment
-function getProject(): string {
-  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
-}
-
+/**
+ * Main entry point for the SessionStart hook.
+ * Registers the session, persists the ID to file, and injects awareness message.
+ */
 export function main(): void {
   // Read hook input from stdin
   let input: SessionStartInput;
@@ -42,12 +30,15 @@ export function main(): void {
     return;
   }
 
-  const sessionId = getSessionId();
+  const sessionId = generateSessionId();
   const project = getProject();
   const projectName = project.split('/').pop() || 'unknown';
 
-  // Store session ID in environment for other hooks
+  // Store session ID in environment and file for other hooks
   process.env.COORDINATION_SESSION_ID = sessionId;
+  if (!writeSessionId(sessionId)) {
+    console.error(`[session-register] WARNING: Failed to persist session ID ${sessionId} to file`);
+  }
 
   // Register session in PostgreSQL
   const registerResult = registerSession(sessionId, project, '');

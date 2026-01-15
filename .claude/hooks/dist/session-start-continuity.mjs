@@ -44,14 +44,26 @@ function findSessionHandoffWithUUID(sessionName, sessionId) {
   }
   return null;
 }
+function isHandoffFile(filename) {
+  return filename.endsWith(".md") || filename.endsWith(".yaml") || filename.endsWith(".yml");
+}
 function findMostRecentMdFile(dirPath) {
   if (!fs.existsSync(dirPath)) return null;
-  const mdFiles = fs.readdirSync(dirPath).filter((f) => f.endsWith(".md")).sort((a, b) => {
+  const handoffFiles = fs.readdirSync(dirPath).filter((f) => isHandoffFile(f)).sort((a, b) => {
     const statA = fs.statSync(path.join(dirPath, a));
     const statB = fs.statSync(path.join(dirPath, b));
     return statB.mtime.getTime() - statA.mtime.getTime();
   });
-  return mdFiles.length > 0 ? path.join(dirPath, mdFiles[0]) : null;
+  return handoffFiles.length > 0 ? path.join(dirPath, handoffFiles[0]) : null;
+}
+function extractYamlFields(content) {
+  const goalMatch = content.match(/^goal:\s*(.+)$/m);
+  const nowMatch = content.match(/^now:\s*(.+)$/m);
+  if (!goalMatch && !nowMatch) return null;
+  return {
+    goal: goalMatch ? goalMatch[1].trim().replace(/^["']|["']$/g, "") : "",
+    now: nowMatch ? nowMatch[1].trim().replace(/^["']|["']$/g, "") : ""
+  };
 }
 function extractLedgerSection(handoffContent) {
   const match = handoffContent.match(/(?:^|\n)## Ledger\n([\s\S]*?)(?=\n---\n|\n## [^#]|$)/);
@@ -62,7 +74,7 @@ function findSessionHandoff(sessionName) {
   const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const handoffDir = path.join(projectDir, "thoughts", "shared", "handoffs", sessionName);
   if (!fs.existsSync(handoffDir)) return null;
-  const handoffFiles = fs.readdirSync(handoffDir).filter((f) => f.endsWith(".md")).sort((a, b) => {
+  const handoffFiles = fs.readdirSync(handoffDir).filter((f) => isHandoffFile(f)).sort((a, b) => {
     const statA = fs.statSync(path.join(handoffDir, a));
     const statB = fs.statSync(path.join(handoffDir, b));
     return statB.mtime.getTime() - statA.mtime.getTime();
@@ -90,7 +102,7 @@ function pruneLedger(ledgerPath) {
 }
 function getLatestHandoff(handoffDir) {
   if (!fs.existsSync(handoffDir)) return null;
-  const handoffFiles = fs.readdirSync(handoffDir).filter((f) => (f.startsWith("task-") || f.startsWith("auto-handoff-")) && f.endsWith(".md")).sort((a, b) => {
+  const handoffFiles = fs.readdirSync(handoffDir).filter((f) => (f.startsWith("task-") || f.startsWith("auto-handoff-")) && isHandoffFile(f)).sort((a, b) => {
     const statA = fs.statSync(path.join(handoffDir, a));
     const statB = fs.statSync(path.join(handoffDir, b));
     return statB.mtime.getTime() - statA.mtime.getTime();
@@ -166,19 +178,37 @@ async function main() {
         const handoffPath = findSessionHandoff(sessionName);
         if (handoffPath) {
           const content = fs.readFileSync(handoffPath, "utf-8");
-          const ledgerSection = extractLedgerSection(content);
-          if (ledgerSection) {
-            const mtime = fs.statSync(handoffPath).mtime.getTime();
-            if (!mostRecentLedger || mtime > mostRecentLedger.mtime) {
+          const isYaml = handoffPath.endsWith(".yaml") || handoffPath.endsWith(".yml");
+          let goalSummary = "No goal found";
+          let currentFocus = "Unknown";
+          let ledgerContent = "";
+          if (isYaml) {
+            const yamlFields = extractYamlFields(content);
+            if (yamlFields) {
+              goalSummary = yamlFields.goal || "No goal found";
+              currentFocus = yamlFields.now || "Unknown";
+              ledgerContent = content;
+            }
+          } else {
+            const ledgerSection = extractLedgerSection(content);
+            if (ledgerSection) {
               const goalMatch = ledgerSection.match(/\*\*Goal:\*\*\s*([^\n]+)/);
               const nowMatch = ledgerSection.match(/### Now\n\[?-?>?\]?\s*([^\n]+)/);
+              goalSummary = goalMatch ? goalMatch[1].trim().substring(0, 100) : "No goal found";
+              currentFocus = nowMatch ? nowMatch[1].trim() : "Unknown";
+              ledgerContent = ledgerSection;
+            }
+          }
+          if (ledgerContent || isYaml && (goalSummary !== "No goal found" || currentFocus !== "Unknown")) {
+            const mtime = fs.statSync(handoffPath).mtime.getTime();
+            if (!mostRecentLedger || mtime > mostRecentLedger.mtime) {
               mostRecentLedger = {
-                content: ledgerSection,
+                content: ledgerContent || content,
                 sessionName,
                 handoffPath,
                 mtime,
-                goalSummary: goalMatch ? goalMatch[1].trim().substring(0, 100) : "No goal found",
-                currentFocus: nowMatch ? nowMatch[1].trim() : "Unknown"
+                goalSummary: goalSummary.substring(0, 100),
+                currentFocus
               };
             }
           }
@@ -317,7 +347,7 @@ ${handoffLabel} (${latestHandoff.filename}):
 `;
             const truncatedHandoff = handoffContent.length > 2e3 ? handoffContent.substring(0, 2e3) + "\n\n[... truncated, read full file if needed]" : handoffContent;
             additionalContext += truncatedHandoff;
-            const allHandoffs = fs.readdirSync(handoffDir).filter((f) => (f.startsWith("task-") || f.startsWith("auto-handoff-")) && f.endsWith(".md")).sort((a, b) => {
+            const allHandoffs = fs.readdirSync(handoffDir).filter((f) => (f.startsWith("task-") || f.startsWith("auto-handoff-")) && isHandoffFile(f)).sort((a, b) => {
               const statA = fs.statSync(path.join(handoffDir, a));
               const statB = fs.statSync(path.join(handoffDir, b));
               return statB.mtime.getTime() - statA.mtime.getTime();
@@ -368,6 +398,7 @@ main().catch(console.error);
 export {
   buildHandoffDirName,
   extractLedgerSection,
+  extractYamlFields,
   findSessionHandoff,
   findSessionHandoffWithUUID,
   parseHandoffDirName

@@ -83,7 +83,8 @@ async function main() {
     return;
   }
   const filePath = input.tool_input?.file_path || "";
-  if (!filePath.includes("handoffs") || !filePath.endsWith(".md")) {
+  const isHandoffFile = filePath.endsWith(".md") || filePath.endsWith(".yaml") || filePath.endsWith(".yml");
+  if (!filePath.includes("handoffs") || !isHandoffFile) {
     console.log(JSON.stringify({ result: "continue" }));
     return;
   }
@@ -95,6 +96,7 @@ async function main() {
     }
     let content = fs.readFileSync(fullPath, "utf-8");
     let modified = false;
+    const isYamlFile = fullPath.endsWith(".yaml") || fullPath.endsWith(".yml");
     const hasFrontmatter = content.startsWith("---");
     const hasRootSpanId = content.includes("root_span_id:");
     if (!hasRootSpanId) {
@@ -108,7 +110,10 @@ async function main() {
             `turn_span_id: ${state.current_turn_span_id || ""}`,
             `session_id: ${input.session_id}`
           ].join("\n");
-          if (hasFrontmatter) {
+          if (isYamlFile) {
+            content = `${newFields}
+${content}`;
+          } else if (hasFrontmatter) {
             content = content.replace(/^---\n/, `---
 ${newFields}
 `);

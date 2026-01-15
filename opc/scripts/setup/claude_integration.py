@@ -14,6 +14,7 @@ Works on: Windows, macOS, Linux
 """
 
 import json
+import os
 import platform
 import shutil
 from dataclasses import dataclass, field
@@ -379,6 +380,57 @@ def generate_migration_guidance(
     return "\n".join(lines)
 
 
+# Root scripts used by skills/hooks - shared between copy and symlink install
+ROOT_SCRIPTS = [
+    "ast_grep_find.py",          # /ast-grep-find skill
+    "braintrust_analyze.py",     # session-end-cleanup hook
+    "qlty_check.py",             # /qlty-check skill
+    "research_implement_pipeline.py",  # /mcp-chaining skill
+    "test_research_pipeline.py", # /mcp-chaining skill
+    "multi_tool_pipeline.py",    # /skill-developer example
+    "recall_temporal_facts.py",  # /system_overview skill
+]
+
+
+def _copy_scripts(opc_source: Path, target_dir: Path) -> int:
+    """Copy script directories and root scripts to target.
+
+    Shared helper used by both install_opc_integration and
+    install_opc_integration_symlink to avoid duplication.
+
+    Args:
+        opc_source: Source OPC .claude directory
+        target_dir: Target .claude directory
+
+    Returns:
+        Count of scripts copied
+    """
+    count = 0
+
+    # Copy script subdirectories (core, math, tldr)
+    for subdir in ["core", "math", "tldr", "mcp"]:
+        src = opc_source.parent / "opc" / "scripts" / subdir
+        dst = target_dir / "scripts" / subdir
+        if src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            count += len(list(dst.rglob("*.py")))
+
+    # Copy individual root scripts
+    scripts_root = opc_source.parent / "opc" / "scripts"
+    target_scripts = target_dir / "scripts"
+    target_scripts.mkdir(parents=True, exist_ok=True)
+    for script_name in ROOT_SCRIPTS:
+        src = scripts_root / script_name
+        if src.exists():
+            shutil.copy2(src, target_scripts / script_name)
+            count += 1
+
+    return count
+
+
 def install_opc_integration(
     target_dir: Path,
     opc_source: Path,
@@ -484,64 +536,8 @@ def install_opc_integration(
         if opc_settings_path.exists():
             shutil.copy2(opc_settings_path, target_settings_path)
 
-        # Copy mcp_config.json (MCP server configuration for the Python runtime tooling)
-        # Do not overwrite an existing user config.
-        opc_mcp_config = opc_source / "mcp_config.json"
-        target_mcp_config = target_dir / "mcp_config.json"
-        if opc_mcp_config.exists() and not target_mcp_config.exists():
-            shutil.copy2(opc_mcp_config, target_mcp_config)
-
-        # Copy scripts/core/ for memory/artifact support
-        # This enables recall_learnings, store_learning, and artifact_* scripts
-        opc_scripts_core = opc_source.parent / "opc" / "scripts" / "core"
-        target_scripts_core = target_dir / "scripts" / "core"
-        if opc_scripts_core.exists():
-            target_scripts_core.parent.mkdir(parents=True, exist_ok=True)
-            if target_scripts_core.exists():
-                shutil.rmtree(target_scripts_core)
-            shutil.copytree(opc_scripts_core, target_scripts_core)
-            result["installed_scripts"] = len(list(target_scripts_core.rglob("*.py")))
-
-        # Copy scripts/cc_math/ for math computation support
-        # This enables sympy_compute, pint_compute, math_router, etc.
-        # Named cc_math (not math) to avoid shadowing Python's stdlib math module
-        opc_scripts_math = opc_source.parent / "opc" / "scripts" / "cc_math"
-        target_scripts_math = target_dir / "scripts" / "cc_math"
-        if opc_scripts_math.exists():
-            if target_scripts_math.exists():
-                shutil.rmtree(target_scripts_math)
-            shutil.copytree(opc_scripts_math, target_scripts_math)
-            result["installed_scripts"] += len(list(target_scripts_math.rglob("*.py")))
-
-        # Copy scripts/tldr/ for TLDR hook integration
-        # This enables symbol indexing for smart-search-router
-        opc_scripts_tldr = opc_source.parent / "opc" / "scripts" / "tldr"
-        target_scripts_tldr = target_dir / "scripts" / "tldr"
-        if opc_scripts_tldr.exists():
-            if target_scripts_tldr.exists():
-                shutil.rmtree(target_scripts_tldr)
-            shutil.copytree(opc_scripts_tldr, target_scripts_tldr)
-            result["installed_scripts"] += len(list(target_scripts_tldr.rglob("*.py")))
-
-        # Copy individual root scripts used by skills/hooks
-        # These are referenced by skills like /qlty-check, /ast-grep-find, /mcp-chaining
-        root_scripts = [
-            "ast_grep_find.py",          # /ast-grep-find skill
-            "braintrust_analyze.py",     # session-end-cleanup hook
-            "qlty_check.py",             # /qlty-check skill
-            "research_implement_pipeline.py",  # /mcp-chaining skill
-            "test_research_pipeline.py", # /mcp-chaining skill
-            "multi_tool_pipeline.py",    # /skill-developer example
-            "recall_temporal_facts.py",  # /system_overview skill
-        ]
-        opc_scripts_root = opc_source.parent / "opc" / "scripts"
-        target_scripts_root = target_dir / "scripts"
-        target_scripts_root.mkdir(parents=True, exist_ok=True)
-        for script_name in root_scripts:
-            src = opc_scripts_root / script_name
-            if src.exists():
-                shutil.copy2(src, target_scripts_root / script_name)
-                result["installed_scripts"] += 1
+        # Copy scripts (core, math, tldr directories + root scripts)
+        result["installed_scripts"] = _copy_scripts(opc_source, target_dir)
 
         # Copy bundled scripts referenced directly by settings.json (e.g., statusLine)
         bundled_scripts = opc_source / "scripts"
@@ -591,6 +587,102 @@ def install_opc_integration(
                             settings["mcpServers"][mcp_name] = existing.mcps[mcp_name]
                             result["merged_items"].append(f"mcp:{mcp_name}")
                     target_settings_path.write_text(json.dumps(settings, indent=2))
+
+        result["success"] = True
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return result
+
+
+def install_opc_integration_symlink(
+    target_dir: Path,
+    opc_source: Path,
+) -> dict[str, Any]:
+    """Install OPC integration using symlinks instead of copies.
+
+    Creates symlinks from ~/.claude/{rules,skills,hooks,agents} to the
+    source repo's .claude/ directory. This allows:
+    - Changes to auto-sync between user config and repo
+    - Easy contribution back to the project
+    - No re-installation needed after git pull
+
+    Args:
+        target_dir: Target .claude directory (e.g., ~/.claude/)
+        opc_source: Source OPC .claude directory
+
+    Returns:
+        dict with keys: success, symlinked_dirs, error
+    """
+    result = {
+        "success": False,
+        "symlinked_dirs": [],
+        "backed_up_dirs": [],
+        "error": None,
+    }
+
+    # Directories to symlink
+    symlink_dirs = ["rules", "skills", "hooks", "agents"]
+
+    try:
+        # Ensure target exists
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Only create backup directory when actually needed
+        backup_dir = None
+
+        for dir_name in symlink_dirs:
+            source_path = opc_source / dir_name
+            target_path = target_dir / dir_name
+
+            if not source_path.exists():
+                continue
+
+            # Backup existing directory if it exists and is not a symlink
+            if target_path.exists() and not target_path.is_symlink():
+                if backup_dir is None:
+                    backup_dir = target_dir / "backups" / datetime.now().strftime("%Y%m%d-%H%M%S")
+                    backup_dir.mkdir(parents=True, exist_ok=True)
+                backup_path = backup_dir / dir_name
+                shutil.copytree(target_path, backup_path)
+                result["backed_up_dirs"].append(dir_name)
+                shutil.rmtree(target_path)
+            elif target_path.is_symlink():
+                # Remove existing symlink
+                target_path.unlink()
+
+            # Create symlink with Windows-specific error handling
+            try:
+                os.symlink(source_path, target_path)
+                result["symlinked_dirs"].append(dir_name)
+            except OSError as e:
+                if platform.system() == "Windows":
+                    result["error"] = (
+                        f"Symlink creation failed for '{dir_name}'. On Windows, enable Developer Mode "
+                        "(Settings → Privacy & security → For developers) or run as Administrator: {e}"
+                    )
+                    return result
+                raise
+
+        # Copy (not symlink) settings.json - user may want to customize
+        opc_settings_path = opc_source / "settings.json"
+        target_settings_path = target_dir / "settings.json"
+        if opc_settings_path.exists():
+            shutil.copy2(opc_settings_path, target_settings_path)
+
+        # Copy servers, runtime, plugins, scripts (these are less likely to be edited)
+        # Users can manually symlink these if needed
+        for copy_dir in ["servers", "runtime", "plugins"]:
+            src = opc_source / copy_dir
+            dst = target_dir / copy_dir
+            if src.exists():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+
+        # Copy scripts (core, math, tldr directories + root scripts)
+        _copy_scripts(opc_source, target_dir)
 
         result["success"] = True
 

@@ -377,6 +377,32 @@ async def prompt_database_config() -> dict[str, Any]:
     }
 
 
+async def prompt_embedding_config() -> dict[str, str]:
+    """Prompt user for embedding provider configuration.
+
+    Returns:
+        dict with keys: provider, host (if ollama), model (if ollama)
+    """
+    console.print("  [dim]Embeddings power semantic search for learnings recall.[/dim]")
+    console.print("  Options:")
+    console.print("    1. local - sentence-transformers (downloads ~1.3GB model)")
+    console.print("    2. ollama - Use Ollama server (fast, recommended if you have Ollama)")
+    console.print("    3. openai - OpenAI API (requires API key)")
+    console.print("    4. voyage - Voyage AI API (requires API key)")
+
+    provider = Prompt.ask("Embedding provider", choices=["local", "ollama", "openai", "voyage"], default="local")
+
+    config = {"provider": provider}
+
+    if provider == "ollama":
+        host = Prompt.ask("Ollama host URL", default="http://localhost:11434")
+        model = Prompt.ask("Ollama embedding model", default="nomic-embed-text")
+        config["host"] = host
+        config["model"] = model
+
+    return config
+
+
 async def prompt_api_keys() -> dict[str, str]:
     """Prompt user for optional API keys.
 
@@ -434,8 +460,8 @@ def generate_env_file(config: dict[str, Any], env_path: Path) -> None:
             if password:
                 lines.append(f"POSTGRES_PASSWORD={password}")
             lines.append("")
-            lines.append("# Connection string for scripts")
-            lines.append(f"DATABASE_URL=postgresql://{user}:{password}@{host}:{port}/{database}")
+            lines.append("# Connection string for scripts (canonical name)")
+            lines.append(f"CONTINUOUS_CLAUDE_DB_URL=postgresql://{user}:{password}@{host}:{port}/{database}")
         elif mode == "embedded":
             pgdata = db.get("pgdata", "")
             venv = db.get("venv", "")
@@ -443,10 +469,23 @@ def generate_env_file(config: dict[str, Any], env_path: Path) -> None:
             lines.append(f"PGSERVER_VENV={venv}")
             lines.append("")
             lines.append("# Connection string (Unix socket)")
-            lines.append(f"DATABASE_URL=postgresql://postgres:@/postgres?host={pgdata}")
+            lines.append(f"CONTINUOUS_CLAUDE_DB_URL=postgresql://postgres:@/postgres?host={pgdata}")
         else:  # sqlite
-            lines.append("# SQLite mode - no DATABASE_URL needed")
-            lines.append("DATABASE_URL=")
+            lines.append("# SQLite mode - no connection string needed")
+            lines.append("CONTINUOUS_CLAUDE_DB_URL=")
+        lines.append("")
+
+    # Embedding configuration
+    embeddings = config.get("embeddings", {})
+    if embeddings:
+        provider = embeddings.get("provider", "local")
+        lines.append("# Embedding provider (local, ollama, openai, voyage)")
+        lines.append(f"EMBEDDING_PROVIDER={provider}")
+        if provider == "ollama":
+            ollama_host = embeddings.get("host", "http://localhost:11434")
+            ollama_model = embeddings.get("model", "nomic-embed-text")
+            lines.append(f"OLLAMA_HOST={ollama_host}")
+            lines.append(f"OLLAMA_EMBED_MODEL={ollama_model}")
         lines.append("")
 
     # API keys (only write non-empty keys)
@@ -484,7 +523,7 @@ async def run_setup_wizard() -> None:
     )
 
     # Step 0: Backup global ~/.claude (safety first)
-    console.print("\n[bold]Step 0/12: Backing up global Claude configuration...[/bold]")
+    console.print("\n[bold]Step 0/13: Backing up global Claude configuration...[/bold]")
     from scripts.setup.claude_integration import (
         backup_global_claude_dir,
         get_global_claude_dir,
@@ -501,7 +540,7 @@ async def run_setup_wizard() -> None:
         console.print("  [dim]No existing ~/.claude found (clean install)[/dim]")
 
     # Step 1: Check prerequisites (with installation offers)
-    console.print("\n[bold]Step 1/12: Checking system requirements...[/bold]")
+    console.print("\n[bold]Step 1/13: Checking system requirements...[/bold]")
     prereqs = await check_prerequisites_with_install_offers()
 
     if prereqs["docker"]:
@@ -526,7 +565,7 @@ async def run_setup_wizard() -> None:
         sys.exit(1)
 
     # Step 2: Database config
-    console.print("\n[bold]Step 2/12: Database Configuration[/bold]")
+    console.print("\n[bold]Step 2/13: Database Configuration[/bold]")
     console.print("  Choose your database backend:")
     console.print("    [bold]docker[/bold]    - PostgreSQL in Docker (recommended)")
     console.print("    [bold]embedded[/bold]  - Embedded PostgreSQL (no Docker needed)")
@@ -565,23 +604,30 @@ async def run_setup_wizard() -> None:
             }
         db_config["mode"] = "docker"
 
-    # Step 3: API keys
-    console.print("\n[bold]Step 3/12: API Keys (Optional)[/bold]")
+    # Step 3: Embedding configuration
+    console.print("\n[bold]Step 3/13: Embedding Configuration[/bold]")
+    if Confirm.ask("Configure embedding provider?", default=True):
+        embeddings = await prompt_embedding_config()
+    else:
+        embeddings = {"provider": "local"}
+
+    # Step 4: API keys
+    console.print("\n[bold]Step 4/13: API Keys (Optional)[/bold]")
     if Confirm.ask("Configure API keys?", default=False):
         api_keys = await prompt_api_keys()
     else:
         api_keys = {"perplexity": "", "nia": "", "braintrust": ""}
 
-    # Step 4: Generate .env
-    console.print("\n[bold]Step 4/12: Generating configuration...[/bold]")
-    config = {"database": db_config, "api_keys": api_keys}
+    # Step 5: Generate .env
+    console.print("\n[bold]Step 5/13: Generating configuration...[/bold]")
+    config = {"database": db_config, "embeddings": embeddings, "api_keys": api_keys}
     env_path = Path.cwd() / ".env"
     generate_env_file(config, env_path)
     console.print(f"  [green]OK[/green] Generated {env_path}")
 
     # Step 5: Container stack (Sandbox Infrastructure)
     runtime = prereqs.get("container_runtime", "docker")
-    console.print(f"\n[bold]Step 5/12: Container Stack (Sandbox Infrastructure)[/bold]")
+    console.print(f"\n[bold]Step 6/13: Container Stack (Sandbox Infrastructure)[/bold]")
     console.print("  The sandbox requires PostgreSQL and Redis for:")
     console.print("  - Agent coordination and scheduling")
     console.print("  - Build cache and LSP index storage")
@@ -609,7 +655,7 @@ async def run_setup_wizard() -> None:
             console.print(f"  You can start manually with: {runtime} compose up -d")
 
     # Step 6: Migrations
-    console.print("\n[bold]Step 6/12: Database Setup[/bold]")
+    console.print("\n[bold]Step 7/13: Database Setup[/bold]")
     if Confirm.ask("Run database migrations?", default=True):
         from scripts.setup.docker_setup import run_migrations, set_container_runtime
 
@@ -622,7 +668,7 @@ async def run_setup_wizard() -> None:
             console.print(f"  [red]ERROR[/red] {result.get('error', 'Unknown error')}")
 
     # Step 7: Claude Code Integration
-    console.print("\n[bold]Step 7/12: Claude Code Integration[/bold]")
+    console.print("\n[bold]Step 8/13: Claude Code Integration[/bold]")
     from scripts.setup.claude_integration import (
         analyze_conflicts,
         backup_claude_dir,
@@ -631,6 +677,7 @@ async def run_setup_wizard() -> None:
         get_global_claude_dir,
         get_opc_integration_source,
         install_opc_integration,
+        install_opc_integration_symlink,
     )
 
     claude_dir = get_global_claude_dir()  # Use global ~/.claude, not project-local
@@ -661,11 +708,15 @@ async def run_setup_wizard() -> None:
 
         # Offer choices
         console.print("\n[bold]Installation Options:[/bold]")
-        console.print("  1. Full install (backup existing, install OPC, merge non-conflicting)")
-        console.print("  2. Fresh install (backup existing, install OPC only)")
-        console.print("  3. Skip (keep existing configuration)")
+        console.print("  1. Full install (backup existing, copy OPC, merge non-conflicting)")
+        console.print("  2. Fresh install (backup existing, copy OPC only)")
+        console.print("  3. [cyan]Symlink install[/cyan] (link to repo - best for contributors)")
+        console.print("  4. Skip (keep existing configuration)")
+        console.print("")
+        console.print("  [dim]Symlink mode links rules/skills/hooks/agents to the repo.[/dim]")
+        console.print("  [dim]Changes sync automatically; great for contributing back.[/dim]")
 
-        choice = Prompt.ask("Choose option", choices=["1", "2", "3"], default="1")
+        choice = Prompt.ask("Choose option", choices=["1", "2", "3", "4"], default="1")
 
         if choice in ("1", "2"):
             # Backup first
@@ -673,7 +724,7 @@ async def run_setup_wizard() -> None:
             if backup_path:
                 console.print(f"  [green]OK[/green] Backup created: {backup_path.name}")
 
-            # Install
+            # Install (copy mode)
             merge = choice == "1"
             result = install_opc_integration(
                 claude_dir,
@@ -705,11 +756,43 @@ async def run_setup_wizard() -> None:
                     console.print("  [dim]You can build manually: cd ~/.claude/hooks && npm install && npm run build[/dim]")
             else:
                 console.print(f"  [red]ERROR[/red] {result.get('error', 'Unknown error')}")
+        elif choice == "3":
+            # Symlink mode
+            result = install_opc_integration_symlink(claude_dir, opc_source)
+
+            if result["success"]:
+                console.print(f"  [green]OK[/green] Symlinked: {', '.join(result['symlinked_dirs'])}")
+                if result["backed_up_dirs"]:
+                    console.print(f"  [green]OK[/green] Backed up: {', '.join(result['backed_up_dirs'])}")
+                console.print("  [dim]Changes in ~/.claude/ now sync to repo automatically[/dim]")
+
+                # Build TypeScript hooks
+                console.print("  Building TypeScript hooks...")
+                hooks_dir = claude_dir / "hooks"
+                build_success, build_msg = build_typescript_hooks(hooks_dir)
+                if build_success:
+                    console.print(f"  [green]OK[/green] {build_msg}")
+                else:
+                    console.print(f"  [yellow]WARN[/yellow] {build_msg}")
+                    console.print("  [dim]You can build manually: cd ~/.claude/hooks && npm install && npm run build[/dim]")
+            else:
+                console.print(f"  [red]ERROR[/red] {result.get('error', 'Unknown error')}")
         else:
             console.print("  Skipped integration installation")
     else:
-        # Clean install
-        if Confirm.ask("Install Claude Code integration (hooks, skills, rules)?", default=True):
+        # Clean install - offer copy vs symlink
+        console.print("  No existing configuration found.")
+        console.print("\n[bold]Installation Mode:[/bold]")
+        console.print("  1. Copy install (default - copies files to ~/.claude/)")
+        console.print("  2. [cyan]Symlink install[/cyan] (links to repo - best for contributors)")
+        console.print("  3. Skip")
+        console.print("")
+        console.print("  [dim]Symlink mode links rules/skills/hooks/agents to the repo.[/dim]")
+        console.print("  [dim]Changes sync automatically; great for contributing back.[/dim]")
+
+        choice = Prompt.ask("Choose mode", choices=["1", "2", "3"], default="1")
+
+        if choice == "1":
             opc_source = get_opc_integration_source()
             result = install_opc_integration(claude_dir, opc_source)
 
@@ -731,9 +814,56 @@ async def run_setup_wizard() -> None:
                     console.print("  [dim]You can build manually: cd ~/.claude/hooks && npm install && npm run build[/dim]")
             else:
                 console.print(f"  [red]ERROR[/red] {result.get('error', 'Unknown error')}")
+        elif choice == "2":
+            opc_source = get_opc_integration_source()
+            result = install_opc_integration_symlink(claude_dir, opc_source)
+
+            if result["success"]:
+                console.print(f"  [green]OK[/green] Symlinked: {', '.join(result['symlinked_dirs'])}")
+                console.print("  [dim]Changes in ~/.claude/ now sync to repo automatically[/dim]")
+
+                # Build TypeScript hooks
+                console.print("  Building TypeScript hooks...")
+                hooks_dir = claude_dir / "hooks"
+                build_success, build_msg = build_typescript_hooks(hooks_dir)
+                if build_success:
+                    console.print(f"  [green]OK[/green] {build_msg}")
+                else:
+                    console.print(f"  [yellow]WARN[/yellow] {build_msg}")
+                    console.print("  [dim]You can build manually: cd ~/.claude/hooks && npm install && npm run build[/dim]")
+            else:
+                console.print(f"  [red]ERROR[/red] {result.get('error', 'Unknown error')}")
+        else:
+            console.print("  Skipped integration installation")
+
+    # Set CLAUDE_OPC_DIR environment variable for skills to find scripts
+    console.print("  Setting CLAUDE_OPC_DIR environment variable...")
+    shell_config = None
+    shell = os.environ.get("SHELL", "")
+    if "zsh" in shell:
+        shell_config = Path.home() / ".zshrc"
+    elif "bash" in shell:
+        shell_config = Path.home() / ".bashrc"
+
+    opc_dir = _project_root  # Use script location, not cwd (robust if invoked from elsewhere)
+    if shell_config and shell_config.exists():
+        content = shell_config.read_text()
+        export_line = f'export CLAUDE_OPC_DIR="{opc_dir}"'
+        if "CLAUDE_OPC_DIR" not in content:
+            with open(shell_config, "a") as f:
+                f.write(f"\n# Continuous-Claude OPC directory (for skills to find scripts)\n{export_line}\n")
+            console.print(f"  [green]OK[/green] Added CLAUDE_OPC_DIR to {shell_config.name}")
+        else:
+            console.print(f"  [dim]CLAUDE_OPC_DIR already in {shell_config.name}[/dim]")
+    elif sys.platform == "win32":
+        console.print("  [yellow]NOTE[/yellow] Add to your environment:")
+        console.print(f'       set CLAUDE_OPC_DIR="{opc_dir}"')
+    else:
+        console.print("  [yellow]NOTE[/yellow] Add to your shell config:")
+        console.print(f'       export CLAUDE_OPC_DIR="{opc_dir}"')
 
     # Step 8: Math Features (Optional)
-    console.print("\n[bold]Step 8/12: Math Features (Optional)[/bold]")
+    console.print("\n[bold]Step 9/13: Math Features (Optional)[/bold]")
     console.print("  Math features include:")
     console.print("    - SymPy: symbolic algebra, calculus, equation solving")
     console.print("    - Z3: SMT solver for constraint satisfaction & proofs")
@@ -792,7 +922,7 @@ async def run_setup_wizard() -> None:
         console.print("  [dim]Install later with: uv sync --extra math[/dim]")
 
     # Step 9: TLDR Code Analysis Tool
-    console.print("\n[bold]Step 9/12: TLDR Code Analysis Tool[/bold]")
+    console.print("\n[bold]Step 10/13: TLDR Code Analysis Tool[/bold]")
     console.print("  TLDR provides token-efficient code analysis for LLMs:")
     console.print("    - 95% token savings vs reading raw files")
     console.print("    - 155x faster queries with daemon mode")
@@ -943,7 +1073,7 @@ async def run_setup_wizard() -> None:
         console.print("  [dim]Install later with: uv tool install llm-tldr[/dim]")
 
     # Step 10: Diagnostics Tools (Shift-Left Feedback)
-    console.print("\n[bold]Step 10/12: Diagnostics Tools (Shift-Left Feedback)[/bold]")
+    console.print("\n[bold]Step 11/13: Diagnostics Tools (Shift-Left Feedback)[/bold]")
     console.print("  Claude gets immediate type/lint feedback after editing files.")
     console.print("  This catches errors before tests run (shift-left).")
     console.print("")
@@ -981,7 +1111,7 @@ async def run_setup_wizard() -> None:
     console.print("  [dim]TypeScript, Go, Rust coming soon.[/dim]")
 
     # Step 11: Loogle (Lean 4 type search for /prove skill)
-    console.print("\n[bold]Step 11/12: Loogle (Lean 4 Type Search)[/bold]")
+    console.print("\n[bold]Step 12/13: Loogle (Lean 4 Type Search)[/bold]")
     console.print("  Loogle enables type-aware search of Mathlib theorems:")
     console.print("    - Used by /prove skill for theorem proving")
     console.print("    - Search by type signature (e.g., 'Nontrivial _ ↔ _')")
@@ -990,8 +1120,7 @@ async def run_setup_wizard() -> None:
     console.print("  [dim]Note: Requires Lean 4 (elan) and ~2GB for Mathlib index.[/dim]")
 
     if Confirm.ask("\nInstall Loogle for theorem proving?", default=False):
-        import os
-        import subprocess
+        # os and subprocess are already imported at module level
 
         # Check elan prerequisite
         if not shutil.which("elan"):

@@ -57,7 +57,7 @@ function requireOpcDir() {
 
 // src/shared/db-utils-pg.ts
 function getPgConnectionString() {
-  return process.env.OPC_POSTGRES_URL || process.env.DATABASE_URL || "postgresql://claude:claude_dev@localhost:5432/continuous_claude";
+  return process.env.CONTINUOUS_CLAUDE_DB_URL || process.env.DATABASE_URL || process.env.OPC_POSTGRES_URL || "postgresql://claude:claude_dev@localhost:5432/continuous_claude";
 }
 function runPgQuery(pythonCode, args = []) {
   const opcDir = requireOpcDir();
@@ -80,7 +80,7 @@ ${pythonCode}
       cwd: opcDir,
       env: {
         ...process.env,
-        OPC_POSTGRES_URL: getPgConnectionString()
+        CONTINUOUS_CLAUDE_DB_URL: getPgConnectionString()
       }
     });
     return {
@@ -105,7 +105,7 @@ from datetime import datetime
 session_id = sys.argv[1]
 project = sys.argv[2]
 working_on = sys.argv[3] if len(sys.argv) > 3 else ''
-pg_url = os.environ.get('OPC_POSTGRES_URL', 'postgresql://claude:claude_dev@localhost:5432/continuous_claude')
+pg_url = os.environ.get('CONTINUOUS_CLAUDE_DB_URL') or os.environ.get('DATABASE_URL', 'postgresql://claude:claude_dev@localhost:5432/continuous_claude')
 
 async def main():
     conn = await asyncpg.connect(pg_url)
@@ -153,7 +153,7 @@ import json
 from datetime import datetime, timedelta
 
 project_filter = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] != 'null' else None
-pg_url = os.environ.get('OPC_POSTGRES_URL', 'postgresql://claude:claude_dev@localhost:5432/continuous_claude')
+pg_url = os.environ.get('CONTINUOUS_CLAUDE_DB_URL') or os.environ.get('DATABASE_URL', 'postgresql://claude:claude_dev@localhost:5432/continuous_claude')
 
 async def main():
     conn = await asyncpg.connect(pg_url)
@@ -206,17 +206,41 @@ asyncio.run(main())
   }
 }
 
-// src/session-register.ts
-function getSessionId() {
+// src/shared/session-id.ts
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { join as join2 } from "path";
+var SESSION_ID_FILENAME = ".coordination-session-id";
+function getSessionIdFile(options = {}) {
+  const claudeDir = join2(process.env.HOME || "/tmp", ".claude");
+  if (options.createDir) {
+    try {
+      mkdirSync(claudeDir, { recursive: true, mode: 448 });
+    } catch {
+    }
+  }
+  return join2(claudeDir, SESSION_ID_FILENAME);
+}
+function generateSessionId() {
   const spanId = process.env.BRAINTRUST_SPAN_ID;
   if (spanId) {
     return spanId.slice(0, 8);
   }
   return `s-${Date.now().toString(36)}`;
 }
+function writeSessionId(sessionId) {
+  try {
+    const filePath = getSessionIdFile({ createDir: true });
+    writeFileSync(filePath, sessionId, { encoding: "utf-8", mode: 384 });
+    return true;
+  } catch {
+    return false;
+  }
+}
 function getProject() {
   return process.env.CLAUDE_PROJECT_DIR || process.cwd();
 }
+
+// src/session-register.ts
 function main() {
   let input;
   try {
@@ -226,10 +250,13 @@ function main() {
     console.log(JSON.stringify({ result: "continue" }));
     return;
   }
-  const sessionId = getSessionId();
+  const sessionId = generateSessionId();
   const project = getProject();
   const projectName = project.split("/").pop() || "unknown";
   process.env.COORDINATION_SESSION_ID = sessionId;
+  if (!writeSessionId(sessionId)) {
+    console.error(`[session-register] WARNING: Failed to persist session ID ${sessionId} to file`);
+  }
   const registerResult = registerSession(sessionId, project, "");
   const sessionsResult = getActiveSessions(project);
   const otherSessions = sessionsResult.sessions.filter((s) => s.id !== sessionId);

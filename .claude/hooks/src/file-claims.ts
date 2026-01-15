@@ -11,20 +11,13 @@
 
 import { readFileSync } from 'fs';
 import { checkFileClaim, claimFile } from './shared/db-utils-pg.js';
+import { getSessionId, getProject } from './shared/session-id.js';
 import type { PreToolUseInput, HookOutput } from './shared/types.js';
 
-// Get session ID from environment (set by session-register hook)
-function getSessionId(): string {
-  return process.env.COORDINATION_SESSION_ID ||
-         process.env.BRAINTRUST_SPAN_ID?.slice(0, 8) ||
-         `s-${Date.now().toString(36)}`;
-}
-
-// Get project from environment
-function getProject(): string {
-  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
-}
-
+/**
+ * Main entry point for the PreToolUse:Edit hook.
+ * Checks for file conflicts and claims files for the current session.
+ */
 export function main(): void {
   // Read hook input from stdin
   let input: PreToolUseInput;

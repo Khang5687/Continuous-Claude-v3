@@ -68,8 +68,8 @@ def get_backend() -> str:
     if backend in ("sqlite", "postgres"):
         return backend
 
-    # Check if DATABASE_URL or CONTINUOUS_CLAUDE_DB_URL is set
-    if os.environ.get("DATABASE_URL") or os.environ.get("CONTINUOUS_CLAUDE_DB_URL"):
+    # Check if CONTINUOUS_CLAUDE_DB_URL or DATABASE_URL is set (canonical first)
+    if os.environ.get("CONTINUOUS_CLAUDE_DB_URL") or os.environ.get("DATABASE_URL"):
         return "postgres"
 
     # Default to sqlite for simplicity
