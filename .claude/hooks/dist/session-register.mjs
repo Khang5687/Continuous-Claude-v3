@@ -1,5 +1,5 @@
 // src/session-register.ts
-import { readFileSync as readFileSync2 } from "fs";
+import { readFileSync as readFileSync3 } from "fs";
 
 // src/shared/db-utils-pg.ts
 import { spawnSync } from "child_process";
@@ -207,7 +207,7 @@ asyncio.run(main())
 }
 
 // src/shared/session-id.ts
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync as readFileSync2, writeFileSync } from "fs";
 import { join as join2 } from "path";
 var SESSION_ID_FILENAME = ".coordination-session-id";
 function getSessionIdFile(options = {}) {
@@ -244,7 +244,7 @@ function getProject() {
 function main() {
   let input;
   try {
-    const stdinContent = readFileSync2(0, "utf-8");
+    const stdinContent = readFileSync3(0, "utf-8");
     input = JSON.parse(stdinContent);
   } catch {
     console.log(JSON.stringify({ result: "continue" }));
